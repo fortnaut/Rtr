@@ -1,0 +1,86 @@
+using System;
+using System.Threading.Tasks;
+using Dapper;
+using Npgsql;
+
+namespace DapperHomework
+{
+    // 1. Модель данных (если она у вас в отдельном файле, этот блок можно убрать)
+    public class Student
+    {
+        public int Id { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public int Age { get; set; }
+    }
+
+    // 2. Точка входа в программу
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            // ВАЖНО: Замените эту строку на вашу реальную строку подключения к PostgreSQL
+            // Формат: Host=адрес;Port=порт;Database=имя_бд;Username=логин;Password=пароль
+            string connectionString = "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=ваш_пароль";
+
+            try
+            {
+                Console.WriteLine("Подключение к базе данных...");
+                await RunTask1Async(connectionString);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Произошла ошибка: {ex.Message}");
+            }
+            
+            Console.WriteLine("\nНажмите любую клавишу для выхода...");
+            Console.ReadKey();
+        }
+
+        // 3. Логика Задания 1
+        static async Task RunTask1Async(string connectionString)
+        {
+            // Используем using, чтобы автоматически закрыть соединение
+            using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync();
+            Console.WriteLine("Успешное подключение!\n");
+
+            // Пункт 2: Вывод всех студентов
+            Console.WriteLine("--- Все студенты ---");
+            var allStudents = await connection.QueryAsync<Student>("SELECT id, firstname, lastname, age FROM students");
+            foreach (var student in allStudents)
+            {
+                Console.WriteLine($"{student.Id}: {student.FirstName} {student.LastName}, Возраст: {student.Age}");
+            }
+
+            // Пункт 3: Сортировка по фамилиям
+            Console.WriteLine("\n--- Сортировка по фамилиям ---");
+            // Сортировку лучше делать средствами SQL (ORDER BY)
+            var sortedStudents = await connection.QueryAsync<Student>("SELECT id, firstname, lastname, age FROM students ORDER BY lastname");
+            foreach (var student in sortedStudents)
+            {
+                Console.WriteLine($"{student.LastName} {student.FirstName}");
+            }
+
+            // Пункт 4: Вывод количества студентов (скалярный запрос)
+            Console.WriteLine("\n--- Общее количество ---");
+            // ExecuteScalarAsync используется, когда запрос возвращает одно единственное значение
+            var count = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM students");
+            Console.WriteLine($"Количество студентов: {count}");
+
+            // Пункт 5: Вывод студентов старше указанного возраста
+            Console.WriteLine("\n--- Студенты старше 20 лет ---");
+            int targetAge = 20;
+            
+            // Используем параметризованный запрос (@Age) для защиты от SQL-инъекций
+            var olderStudents = await connection.QueryAsync<Student>(
+                "SELECT id, firstname, lastname, age FROM students WHERE age > @Age", 
+                new { Age = targetAge });
+                
+            foreach (var student in olderStudents)
+            {
+                Console.WriteLine($"{student.FirstName} {student.LastName}, Возраст: {student.Age}");
+            }
+        }
+    }
+}

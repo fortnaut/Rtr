@@ -1,0 +1,159 @@
+using Dapper;
+using Npgsql;
+
+public class StudentRepository
+{
+    private readonly string _connectionString;
+
+    public StudentRepository(string connectionString)
+    {
+        _connectionString = connectionString;
+    }
+
+    private NpgsqlConnection CreateConnection()
+    {
+        return new NpgsqlConnection(_connectionString);
+    }
+
+    // 1. Добавление студента
+    public async Task<int> AddStudentAsync(Student student)
+    {
+        using var connection = CreateConnection();
+
+        var sql = """
+            INSERT INTO "Students" ("FirstName", "LastName", "Age")
+            VALUES (@FirstName, @LastName, @Age)
+            """;
+
+        return await connection.ExecuteAsync(sql, student);
+    }
+
+    // 2. Изменение имени и возраста
+    public async Task<bool> UpdateStudentAsync(
+        int id,
+        string firstName,
+        int age)
+    {
+        using var connection = CreateConnection();
+
+        var sql = """
+            UPDATE "Students"
+            SET "FirstName" = @FirstName,
+                "Age" = @Age
+            WHERE "Id" = @Id
+            """;
+
+        var affectedRows = await connection.ExecuteAsync(
+            sql,
+            new
+            {
+                Id = id,
+                FirstName = firstName,
+                Age = age
+            });
+
+        return affectedRows > 0;
+    }
+
+    // 3. Удаление студента
+    public async Task<bool> DeleteStudentAsync(int id)
+    {
+        using var connection = CreateConnection();
+
+        var sql = """
+            DELETE FROM "Students"
+            WHERE "Id" = @Id
+            """;
+
+        var affectedRows = await connection.ExecuteAsync(
+            sql,
+            new { Id = id });
+
+        return affectedRows > 0;
+    }
+
+    // 4. Получение всех студентов
+    public async Task<IEnumerable<Student>> GetAllStudentsAsync()
+    {
+        using var connection = CreateConnection();
+
+        var sql = """
+            SELECT "Id", "FirstName", "LastName", "Age"
+            FROM "Students"
+            """;
+
+        return await connection.QueryAsync<Student>(sql);
+    }
+
+    // 5. Поиск по ID
+    public async Task<Student?> GetStudentByIdAsync(int id)
+    {
+        using var connection = CreateConnection();
+
+        var sql = """
+            SELECT "Id", "FirstName", "LastName", "Age"
+            FROM "Students"
+            WHERE "Id" = @Id
+            """;
+
+        return await connection.QueryFirstOrDefaultAsync<Student>(
+            sql,
+            new { Id = id });
+    }
+
+    // 6. Поиск с необязательными фильтрами
+    public async Task<IEnumerable<Student>> SearchStudentsAsync(
+        string? lastName,
+        int? minAge,
+        int? maxAge)
+    {
+        using var connection = CreateConnection();
+
+        var conditions = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (!string.IsNullOrWhiteSpace(lastName))
+        {
+            conditions.Add("\"LastName\" = @LastName");
+            parameters.Add("LastName", lastName);
+        }
+
+        if (minAge.HasValue)
+        {
+            conditions.Add("\"Age\" >= @MinAge");
+            parameters.Add("MinAge", minAge.Value);
+        }
+
+        if (maxAge.HasValue)
+        {
+            conditions.Add("\"Age\" <= @MaxAge");
+            parameters.Add("MaxAge", maxAge.Value);
+        }
+
+        var sql = """
+            SELECT "Id", "FirstName", "LastName", "Age"
+            FROM "Students"
+            """;
+
+        if (conditions.Count > 0)
+        {
+            sql += " WHERE " + string.Join(" AND ", conditions);
+        }
+
+        return await connection.QueryAsync<Student>(sql, parameters);
+    }
+
+    // 7. Добавление студента с возвращением нового ID
+    public async Task<int> AddStudentWithIdAsync(Student student)
+    {
+        using var connection = CreateConnection();
+
+        var sql = """
+            INSERT INTO "Students" ("FirstName", "LastName", "Age")
+            VALUES (@FirstName, @LastName, @Age)
+            RETURNING "Id"
+            """;
+
+        return await connection.QuerySingleAsync<int>(sql, student);
+    }
+}

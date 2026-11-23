@@ -1,0 +1,54 @@
+using System;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Linq;
+using System.Text;
+
+namespace ProhibitedWordsScanner
+{
+    public static class ReportGenerator
+    {
+        public static void Generate(string outputDir,
+            ConcurrentBag<ScanResult> results,
+            ConcurrentDictionary<string, int> wordStats)
+        {
+            string reportPath = Path.Combine(outputDir, $"report_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+
+            using var writer = new StreamWriter(reportPath, false, Encoding.UTF8);
+            writer.WriteLine("=== ОТЧЁТ О СКАНИРОВАНИИ ===");
+            writer.WriteLine($"Дата: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            writer.WriteLine();
+
+            // Таблица найденных файлов
+            writer.WriteLine("Найденные файлы:");
+            writer.WriteLine(new string('-', 120));
+            writer.WriteLine($"{"Оригинальный путь",-50} | {"Размер (байт)",12} | {"Замен",8} | {"Слова"}");
+            writer.WriteLine(new string('-', 120));
+
+            foreach (var r in results.OrderByDescending(x => x.TotalReplacements))
+            {
+                string words = string.Join(", ", r.WordCounts.Select(kv => $"{kv.Key}({kv.Value})"));
+                writer.WriteLine($"{Truncate(r.OriginalPath, 50),-50} | {r.FileSize,12} | {r.TotalReplacements,8} | {words}");
+            }
+
+            writer.WriteLine(new string('-', 120));
+            writer.WriteLine($"Всего файлов с запрещёнными словами: {results.Count}");
+            writer.WriteLine($"Общее количество замен: {results.Sum(r => r.TotalReplacements)}");
+            writer.WriteLine();
+
+            // Топ-10 слов
+            writer.WriteLine("Топ-10 самых популярных запрещённых слов:");
+            writer.WriteLine(new string('-', 50));
+            foreach (var kv in wordStats.OrderByDescending(x => x.Value).Take(10))
+            {
+                writer.WriteLine($"{kv.Key,-30} : {kv.Value}");
+            }
+
+            writer.WriteLine();
+            writer.WriteLine("Файлы сохранены в подпапках 'Originals' и 'Replaced'.");
+        }
+
+        private static string Truncate(string s, int max) =>
+            s.Length <= max ? s : "..." + s.Substring(s.Length - (max - 3));
+    }
+}

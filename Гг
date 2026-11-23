@@ -1,0 +1,103 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ProhibitedWordsScanner
+{
+    public class ScanResult
+    {
+        public string OriginalPath { get; set; }
+        public string CopiedPath { get; set; }
+        public string ReplacedPath { get; set; }
+        public long FileSize { get; set; }
+        public int TotalReplacements { get; set; }
+        public Dictionary<string, int> WordCounts { get; set; } = new();
+    }
+
+    public class ScannerService
+    {
+        private readonly string[] _words;
+        private readonly string _outputDir;
+        private readonly IProgressReporter _reporter;
+        private readonly AppState _state = new AppState();
+
+        public ConcurrentBag<ScanResult> Results { get; } = new();
+        public ConcurrentDictionary<string, int> WordStatistics { get; } = new();
+        public int TotalFilesScanned => _totalScanned;
+        private int _totalScanned;
+
+        public ScannerService(string[] words, string outputDir, IProgressReporter reporter)
+        {
+            _words = words.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim()).ToArray();
+            _outputDir = outputDir;
+            _reporter = reporter;
+        }
+
+        public void Pause() => _state.Pause();
+        public void Resume() => _state.Resume();
+        public void Stop() => _state.Stop();
+
+        public async Task Run(IEnumerable<string> drives, CancellationToken externalToken)
+        {
+            Directory.CreateDirectory(_outputDir);
+
+            // Связываем внешний токен с внутренним (для остановки из UI)
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                _state.Cts.Token, externalToken);
+            var ct = linkedCts.Token;
+
+            var tasks = drives
+                .Where(d => Directory.Exists(d))
+                .Select(d => Task.Run(() => ScanDirectory(d, ct), ct))
+                .ToArray();
+
+            try
+            {
+                await Task.WhenAll(tasks);
+            }
+            catch (OperationCanceledException) { /* ожидаемо при остановке */ }
+        }
+
+        private void ScanDirectory(string root, CancellationToken ct)
+        {
+            var stack = new Stack<string>();
+            stack.Push(root);
+
+            while (stack.Count > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                _state.WaitIfPaused(ct); // блокировка на паузе
+
+                string current = stack.Pop();
+                IEnumerable<string> entries;
+
+                try
+                {
+                    entries = Directory.EnumerateFileSystemEntries(current);
+                }
+                catch (UnauthorizedAccessException) { continue; }
+                catch (IOException) { continue; }
+
+                foreach (var entry in entries)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    _state.WaitIfPaused(ct);
+
+                    if (Directory.Exists(entry))
+                    {
+                        stack.Push(entry);
+                    }
+                    else
+                    {
+                        ProcessFile(entry, ct);
+                    }
+                }
+            }
+        }
+    }
+}
